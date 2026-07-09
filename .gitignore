@@ -216,3 +216,30 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Private Docs
+docs/private/
+
+# VS Code
+.vscode/
+
+# JetBrains IDEs
+.idea/
+
+# macOS
+.DS_Store
+
+# Linux
+*~
+
+# Django collected static files
+staticfiles/
+
+# Media uploads (if using local storage)
+media/
+
+# Local PostgreSQL data (if using Docker volumes)
+postgres_data/
+
+# Docker override files
+docker-compose.override.yml
