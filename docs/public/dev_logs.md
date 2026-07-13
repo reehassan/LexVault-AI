@@ -143,10 +143,36 @@ Personal log of actual work completed on LexVault AI. Kept for future reference 
 
 ---
 
-## Open TODOs Going Into Next Phase
+## Day 16 — Celery + Redis: Concepts, Docker Wiring, and Debugging
 
-- [ ] Confirm final coverage numbers after the backend edge-case and management-command tests land — target closing the `backends.py` gap specifically, since it's the auth security layer.
-- [ ] Build custom firm-aware login view/form; decide whether to drop `ModelBackend` fallback once it exists (still open from Day 9).
-- [ ] `firm` FK on `User` still nullable — must become `NOT NULL` once firm onboarding is automated.
-- [ ] All six schema entities now exist — next real milestone is the ingestion pipeline: PyMuPDF extraction → chunking → `bge-small-en-v1.5` embedding, populating `Document`/`Chunk` with real data instead of test fixtures.
-- [ ] `apps/ingestion` directory already scaffolded (empty) — decide whether pipeline logic lives there or inside `apps/documents`; revisit once the pipeline's first file starts exceeding ~300–400 lines.
+**Concepts covered before building:**
+- Message broker — the queue between Django and a Celery worker (Redis, in this stack)
+- Result backend — where Celery stores task status/results (same Redis instance, separate logical DB)
+- `celery.py` — the project-level file that creates the Celery app instance and wires it to Django settings
+- `CELERY_TASK_ALWAYS_EAGER` — makes `.delay()` run synchronously in tests, no broker/worker needed
+- Docker networking — containers on the same Compose network resolve each other by service name, not `localhost`; a process running on the host (like Django currently does) instead needs `localhost` + the container's exposed port
+
+**docker-compose.yml — added three new services:**
+- `redis` (`redis:7-alpine`) — broker + result backend, port `6379` exposed to host
+- `celery_worker` — built from a new project `Dockerfile` (`uv sync --frozen` based), running `celery -A config worker`
+- `flower` — same build, running `celery -A config flower --port=5555`, dashboard on port `5555`
+
+**Debugging chain worked through, in order:**
+
+1. **`docker compose down`: "no configuration file provided"** → `docker-compose.yml` and the shell session were in different directories (`docker/` vs project root). Root cause: build context for `build: .` depends on *where compose is run from*, not where the compose file lives. Resolved by keeping `docker-compose.yml` and `Dockerfile` both at the project root and always running compose commands from there.
+
+2. **`COPY pyproject.toml uv.lock ./` failed — file not found** → same root cause as above, confirmed once the directory issue was fixed.
+
+3. **First successful build took ~18 minutes, build context was 5.33GB** → Docker was copying the entire project directory (`.venv/`, `.git/`, `htmlcov/`, `__pycache__/`) into the build context before building anything. Fixed with a `.dockerignore` at the project root excluding all of these. Rebuild time dropped to ~3 seconds.
+
+4. **`celery: executable file not found in $PATH`** → `uv sync` installs dependencies into a project-local `.venv/` inside the container, which was never added to `PATH`. Fixed by prefixing every Celery command in `docker-compose.yml` with `uv run` (e.g. `uv run celery -A config worker --loglevel=info`), which locates the venv automatically without needing `PATH` changes.
+
+5. **Persistent `"wv2" variable is not set` warning on every Compose command** → traced to `.env`'s `SECRET_KEY` containing a literal `$wv2` substring, which Compose's variable-interpolation syntax misread as a reference to an undefined variable named `wv2`. Also caught a stray `==` typo in the same line. Fix: escape literal `$` characters as `$$` in `.env` values that Compose reads.
+
+6. **All four containers (`postgres`, `redis`, `celery_worker`, `flower`) came up `Up` — but `celery_worker` logs showed `Module 'config' has no attribute 'celery'`** → `config/celery.py` didn't exist yet; only the Docker/Compose wiring had been done, not the actual Celery app instance. This was the point where scope shifted from Docker configuration to writing the actual Celery integration.
+
+7. **`ModuleNotFoundError: No module named 'celery'` when running `python manage.py shell` on the host** → `celery` was listed in `pyproject.toml` (added Day 1) but the host's local `.venv` had never been synced since. Docker's `celery_worker` image *did* have it, since `uv sync --frozen` runs fresh on every `docker build` — the host venv needed a manual `uv sync` to catch up. Confirmed the general lesson: adding a dependency to `pyproject.toml` doesn't propagate automatically to every environment using that file; each environment (host venv, each Docker image) needs its own sync.
+
+**Outcome:** requested and received a clean, from-scratch, step-by-step Celery + Redis setup guide (`docs/private/celery_redis_setup_guide.md`) consolidating the correct build order — Redis running → `celery.py` created → settings wired → task written → worker started → task called and proven via `.delay()`/`.get()` → Flower confirmation → `ALWAYS_EAGER` for tests — deliberately sequenced so Django-on-host + Redis-in-Docker is proven working *before* attempting to containerize the worker itself, since debugging Celery logic and Docker networking simultaneously had been the source of most of today's confusion.
+
+![alt text](image.png)
