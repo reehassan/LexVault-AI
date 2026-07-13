@@ -29,7 +29,8 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
-    "django.contrib.postgres",  
+    "django.contrib.postgres",
+    "storages",  
 
     "apps.firms.apps.FirmsConfig",
     "apps.accounts.apps.AccountsConfig",
@@ -91,6 +92,20 @@ USE_TZ = True
 STATIC_URL = "static/"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+# Celery Configuration
+
+CELERY_BROKER_URL = env("CELERY_BROKER_URL")
+
+CELERY_RESULT_BACKEND = env("CELERY_RESULT_BACKEND")
+
+CELERY_ACCEPT_CONTENT = ["json"]
+
+CELERY_TASK_SERIALIZER = "json"
+
+CELERY_RESULT_SERIALIZER = "json"
+
+CELERY_TIMEZONE = TIME_ZONE
 
 
 #  TODO: the custom auth backend (ModelBackend subclass) must query User.objects.get(firm=firm, username=username) — until that backend exists, Django's default login views will misbehave for duplicate usernames across firms
