@@ -176,3 +176,77 @@ Personal log of actual work completed on LexVault AI. Kept for future reference 
 **Outcome:** requested and received a clean, from-scratch, step-by-step Celery + Redis setup guide (`docs/private/celery_redis_setup_guide.md`) consolidating the correct build order — Redis running → `celery.py` created → settings wired → task written → worker started → task called and proven via `.delay()`/`.get()` → Flower confirmation → `ALWAYS_EAGER` for tests — deliberately sequenced so Django-on-host + Redis-in-Docker is proven working *before* attempting to containerize the worker itself, since debugging Celery logic and Docker networking simultaneously had been the source of most of today's confusion.
 
 ![alt text](image.png)
+
+
+## Day 17 — Upload View, Storage Config, and Test Infrastructure Fixes
+
+**Concepts covered before building:**
+- MIME type validation vs extension checking — a renamed `.txt` file passes an extension check but fails a real content-based check
+- `python-magic` — reads actual file header bytes (`libmagic`), not filename or the browser-supplied (spoofable) `content_type`
+- `request.FILES` — Django's dict-like container for uploaded files, separate from `request.POST`
+- `django-storages` — abstracts file storage behind Django's standard `Storage` API, so the same code writes to local disk in dev and Cloudflare R2 in production
+- R2 vs S3 — R2 implements the S3-compatible API; only the endpoint URL differs, same `django-storages` backend works for both
+
+**Upload view — built iteratively, with real bugs caught along the way:**
+- First self-written draft had five real bugs: wrong import (`from apps import magic` instead of the top-level `magic` package), an undefined `uploaded_file` variable referenced after naming the actual variable `document`, a `magic_task.delay()` call referencing a task that didn't exist (should have been `process_document`), and — the subtle one — `ALLOWED_MIME_TYPES` defined as a plain string, making `not in` check substring membership rather than exact-value membership (worked by accident for the one test case, silently wrong for anything else).
+- Second draft fixed all five; caught one more on review — `storage_path` was rebuilt from a raw f-string instead of using the actual value returned by `default_storage.save()`, which matters because Django auto-renames on filename collision and the rebuilt string wouldn't reflect that.
+- Configured `django-storages`: `FileSystemStorage` for `development.py` (local `MEDIA_ROOT`), `S3Storage` pointed at an R2 endpoint for `production.py` — same view code works unchanged against either backend.
+- `process_document` task initially just logged the `document_id` — the actual extraction wiring came later (Day 18).
+
+**Testing — hit a real blocker, adjusted approach:**
+- First manual test via `curl` failed with `403 CSRF verification failed` — Django's CSRF middleware correctly rejecting an unauthenticated, token-less request. Recognized this would also immediately hit `AttributeError` on `request.user.firm` (`AnonymousUser` has no `firm`) even if CSRF were bypassed, since no login flow exists yet.
+- Switched to Django's test `Client` with `force_login()` instead of fighting `curl` + cookies + a login view that doesn't exist yet — the correct professional pattern for testing view logic in isolation. `Client()` doesn't enforce CSRF by default, and `force_login()` creates a real authenticated session for a real `User`/`Firm`.
+- Wrote `test_views.py`: valid-PDF acceptance, fake-PDF rejection (renamed `.txt`), missing-file guard — all passing.
+
+**`CELERY_TASK_ALWAYS_EAGER` setup — hit and fixed a real file-writing bug:**
+- Created `config/settings/test.py`, pointed `pytest.ini` at it — immediately broke every test with `RuntimeError: Model class apps.firms.models.Firm doesn't declare an explicit app_label`.
+- Root cause: `test.py` had only been partially written — `from .development import *` never actually landed in the file, leaving `INSTALLED_APPS` completely empty (`[]`) under the new settings module. Confirmed via direct `INSTALLED_APPS` comparison between `development` and `test` settings before guessing at a fix.
+- Rewrote the file correctly; added a mock-based test (`patch("apps.documents.views.process_document.delay")`) proving the view actually triggers the Celery task with the correct `document_id` — patched at the import location in `views.py`, not the definition location in `tasks.py` (a common `unittest.mock` gotcha).
+
+---
+
+## Day 18 — Extraction Service, Exception Hierarchy, and Pipeline Proof
+
+**Concepts covered before building:**
+- PyMuPDF (`fitz`) — parses actual PDF object structure (pages, fonts, text streams), not raw bytes
+- Page objects — `Document` behaves like a list of `Page` objects, each with `.get_text()`, preserving page numbers needed for citation
+- Pure-Python-no-Django design — `extract_pages()` deliberately has zero Django imports, for fast plain-pytest testing and reuse outside the Celery task
+- Custom exception classes — `ExtractionError(Exception)` over bare `ValueError`, so callers can catch extraction failures specifically without swallowing unrelated bugs
+- Encrypted vs corrupted PDFs — genuinely different failure modes needing different user-facing messages
+- Scanned PDFs — image-only, no text layer; `.get_text()` returns empty strings silently, no error by default
+- Graceful degradation — failing in a controlled, informative way vs crashing or silently producing wrong/empty results
+- Failure classification — silent (log only) vs visible (user-facing) vs critical (would alert a human); logging severity levels (`INFO`/`WARNING`/`ERROR`) vs `print()`, which has no severity, no routing, no way to filter by environment
+
+**`services/extractor.py` — built and tested in isolation first:**
+- `extract_pages(file_path: str) -> list[dict]`, returning `[{"page_number": N, "text": "..."}]`, one entry per non-empty page.
+- First version: single `ExtractionError`, encrypted-PDF detection via `doc.needs_pass`, corrupted-file detection via a broad `except Exception` around `fitz.open()`.
+- 6 tests written using `tmp_path` + `fitz` itself to generate real PDFs on disk (valid, corrupted-garbage-bytes, encrypted-via-`fitz.PDF_ENCRYPT_AES_256`, nonexistent path) — all passing, in ~1 second, confirming the zero-Django-dependency design actually delivers fast tests.
+
+**Wired into the real pipeline — first end-to-end proof:**
+- Updated `process_document` to actually call `extract_pages()`, using `default_storage.path()` to resolve the stored file to a local filesystem path (flagged as a known limitation: won't work once storage moves to R2, will need a stream-based read instead).
+- Status handling: `PROCESSING` on start, `page_count` written on success, `FAILED` + `error_message` on `ExtractionError`. Deliberately left status as `PROCESSING` rather than `READY` after extraction alone — `READY` would be inaccurate until chunking/embedding also exist.
+- Wrote `test_pipeline.py`: one HTTP upload call, relying on `CELERY_TASK_ALWAYS_EAGER` to run the task synchronously within the same request — proving the entire chain (view → MIME check → storage → `Document` row → Celery trigger → real PyMuPDF extraction → `page_count` written back) for real, no mocking. A second test proved the `FAILED` path using a file with a valid `%PDF-` header but a garbage body (passes MIME sniffing, fails PyMuPDF's real parse).
+- Confirmed live via `pytest -s --log-cli-level=INFO` — watched real `INFO`/`ERROR` log lines and Celery's own tracer (`succeeded in 0.02s`) confirming genuine execution, not just green test output.
+
+**Extended with a full exception hierarchy and severity-based logging:**
+- Split `ExtractionError` into three subclasses: `EncryptedPDFError`, `CorruptedPDFError`, `EmptyPDFError` — all still catchable as the base class for callers that don't need the distinction.
+- Added scanned-PDF detection: tracks `empty_page_count` during extraction; if *every* page comes back empty, raises `EmptyPDFError` rather than silently returning `[]`. Deliberately distinguished from "some pages empty" (normal — logged at `INFO`, not raised) via a dedicated test proving a document with one real page among blank ones does NOT raise.
+- Added logging throughout at appropriate severities: `INFO` for routine events, `WARNING` for encrypted/empty/corrupted-open failures, `ERROR` in `tasks.py` specifically for the corrupted case (reasoning: could indicate a storage-side bug, not just a bad input file — documented in a dedicated `error_classification.md`).
+- Wrote `error_classification.md` — a reference table for each exception type: classification (silent/visible/critical), log level, exact user-facing message, and reasoning. Also documented what WOULD warrant critical/Sentry-style alerting later (sustained spikes in corrupted-file errors, any non-`ExtractionError` exception escaping `extract_pages()`), left as a deliberate TODO since there's no production traffic yet to monitor.
+- Updated `tasks.py` to catch each subclass specifically with a tailored user message, plus a catch-all for any future `ExtractionError` subclass not yet special-cased — fails gracefully rather than crashing even for failure modes not yet anticipated.
+
+**Full suite run surfaced a real, previously-invisible bug:**
+- Running the complete suite with live logging (`pytest -v -s --log-cli-level=INFO`) showed `test_upload_valid_pdf_creates_document` (from Day 17) triggering a `WARNING: All 0 page(s) ... returned empty text` — the original `VALID_PDF_BYTES` fixture was just a bare `%PDF-1.4` header with no real text objects, which passed MIME detection but was never genuinely extractable content.
+- This had been silently "passing for the wrong reason" since Day 17 — the test only asserted upload success, not extraction success, so the gap was invisible until scanned-PDF detection was built and started correctly flagging it.
+- Fixed by rebuilding the fixture with real `fitz`-generated text content (same helper pattern as `test_pipeline.py`), and strengthened the test to also assert `page_count == 1` after refresh — now genuinely proving extraction succeeds, not just that upload was accepted.
+- Full suite: **21 passed** across `accounts`, `documents` (including the new `services/` extractor tests and `test_pipeline.py`), `firms`, `search`.
+
+---
+
+## Open TODOs Going Into Next Phase
+
+- [ ] Generate and review the coverage report against the full Day 17–18 additions — expect `extractor.py` and `tasks.py` to be at or near 100% given how thoroughly each branch (happy path, encrypted, corrupted, empty) now has a dedicated test.
+- [ ] `default_storage.path()` in `tasks.py` is local-storage-only — needs a stream-based rewrite before R2 goes live in production.
+- [ ] Chunking is the next real pipeline stage: split each page's extracted text into overlapping, token-bounded pieces mapping onto `Chunk.chunk_index`/`Chunk.token_count`.
+- [ ] Still open from Day 9: custom firm-aware login view, to replace `curl`/CSRF workarounds with a real auth flow and drop the `ModelBackend` fallback.
+- [ ] `firm` FK on `User` still nullable — must become `NOT NULL` once firm onboarding is automated.

@@ -791,6 +791,7 @@ dependencies = [
     { name = "redis" },
     { name = "sentence-transformers" },
     { name = "tiktoken" },
+    { name = "transformers" },
 ]
 
 [package.dev-dependencies]
@@ -827,6 +828,7 @@ requires-dist = [
     { name = "redis", specifier = ">=8.0.1" },
     { name = "sentence-transformers", specifier = ">=5.6.0" },
     { name = "tiktoken", specifier = ">=0.13.0" },
+    { name = "transformers", specifier = ">=5.13.0" },
 ]
 
 [package.metadata.requires-dev]
