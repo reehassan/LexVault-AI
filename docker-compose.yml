@@ -21,6 +21,22 @@ services:
     ports:
       - "6379:6379"
 
+  django:
+    build: .
+    container_name: lexvault_django
+    restart: unless-stopped
+    command: uv run python manage.py runserver 0.0.0.0:8000
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres
+      - redis
+    volumes:
+      - .:/app
+      - django_venv:/app/.venv
+
   celery_worker:
     build: .
     container_name: lexvault_celery_worker
@@ -51,3 +67,4 @@ services:
 volumes:
   postgres_data:
   celery_venv:
+  django_venv:
