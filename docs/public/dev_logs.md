@@ -112,3 +112,15 @@ Personal log of actual work completed on LexVault AI. Kept for future reference 
 - Cleaned ~75GB of stale Docker images/build cache in the process. Lesson either way: a dependency doesn't need to be in `pyproject.toml` before the week that actually uses it.
 
 ---
+## Day 14 — PDF Upload & Document Creation
+
+- Wrote the upload endpoint: `apps/documents/views.py`, `urls.py`, wired into `config/urls.py`.
+- `validate_document_file()` — three checks in order: empty file, size ceiling, then real MIME sniffing via `python-magic` reading actual header bytes (never trusting the client's `Content-Type` or filename extension).
+- `save_document_file()` — deliberately ignores the client's filename entirely, always writes `{uuid4()}.pdf`. Caught myself accidentally reintroducing a version that trusted the client's extension during a rewrite — fixed before it shipped. The MIME check already proves the file is a real PDF; the stored extension should reflect that fact, not the client's claim.
+- `process_document` — Day 14 stub only. Flips status to `processing` and stops. Real extraction/chunking/embedding is Days 15–17, not now.
+- Found and fixed a stale leftover: `apps/documents/tests.py` still imported a Celery smoke-test task (`add`) that no longer exists in `tasks.py` — this was blocking test collection entirely until removed. There was also a second, empty `apps/documents/tests/` package sitting alongside the `tests.py` file from an earlier recovery — deleted it, since Python can't have both a module and a package of the same name anyway.
+- Wrote real tests: valid PDF, non-PDF rejected, oversized rejected, empty file rejected, unauthenticated request rejected. All passing, no mocking on the validation logic itself.
+- Hit the `libmagic` ImportError a second time — same root cause as a few days ago, but this time because a Dockerfile rewrite for the non-root `appuser` fix dropped the `apt-get install libmagic1` step entirely. Re-added it with a comment explaining why it's there, specifically so a future edit doesn't drop it a third time.
+- Reconciled a real discrepancy: `MAX_DOCUMENT_UPLOAD_SIZE` in settings said 20MB, but `04_api_contract.md` had locked 25MB with written reasoning. Decided 20MB is fine for a demo and updated the doc to match, rather than silently letting code and contract disagree.
+- Full suite check: 36 tests passing, 97% coverage. One real gap coverage caught: the "no file field submitted" branch in the view had no dedicated test — different failure mode from "empty file content," worth adding.
+- Manually tested the upload via `curl` against the real HTTP path (not `Client().force_login()`) to close the gap `force_login()` leaves — it skips both the login flow and CSRF checking entirely, which is fine for testing view logic in isolation but means the full auth-cookie-CSRF round trip stays unverified by the automated suite alone.
