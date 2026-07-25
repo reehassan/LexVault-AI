@@ -104,7 +104,7 @@ Story 1 (upload).
 **Validation, in order checked:**
 1. File present → else `400 validation_error`
 2. Content-Type / extension is PDF → else `422 unsupported_file_type`
-3. File size — cap not stated in any prior doc. Setting **25 MB** here as a demo-appropriate ceiling (large enough for real contract/legal PDFs, small enough that a bad upload can't stall Celery for minutes). Flag this if you want a different number. → else `413 file_too_large`
+3. File size — cap not stated in any prior doc. Setting **20 MB** here as a demo-appropriate ceiling (large enough for real contract/legal PDFs, small enough that a bad upload can't stall Celery for minutes). Flag this if you want a different number. → else `413 file_too_large`
 
 **Response `201`:**
 ```json
@@ -124,7 +124,7 @@ Document row is created with `status='uploaded'` synchronously; the Celery task 
 
 **Response `413`:**
 ```json
-{"error": "file_too_large", "detail": "File exceeds the 25MB limit."}
+{"error": "file_too_large", "detail": "File exceeds the 20MB limit."}
 ```
 
 ---
@@ -263,6 +263,6 @@ Returning `403` on a cross-firm request confirms the resource *exists*, just isn
 
 ## 11. Open Items
 
-- File size cap (25MB) is not sourced from any prior doc — it's a default set here. Confirm or override.
+- File size cap (20MB) is not sourced from any prior doc — it's a default set here. Confirm or override.
 - No endpoint here for viewing an individual `search_query`'s history — not in the 14 stories, not added.
 - Logout endpoint (§4) is an assumption, flagged above — confirm or cut.
