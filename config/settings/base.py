@@ -115,3 +115,4 @@ AUTHENTICATION_BACKENDS = [
     "apps.accounts.backends.FirmBackend",
     "django.contrib.auth.backends.ModelBackend",  # fallback, e.g. for Django admin login by superuser
 ]
+MAX_DOCUMENT_UPLOAD_SIZE = 20 * 1024 * 1024  # 20 MB
