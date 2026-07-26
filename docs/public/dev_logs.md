@@ -124,3 +124,14 @@ Personal log of actual work completed on LexVault AI. Kept for future reference 
 - Reconciled a real discrepancy: `MAX_DOCUMENT_UPLOAD_SIZE` in settings said 20MB, but `04_api_contract.md` had locked 25MB with written reasoning. Decided 20MB is fine for a demo and updated the doc to match, rather than silently letting code and contract disagree.
 - Full suite check: 36 tests passing, 97% coverage. One real gap coverage caught: the "no file field submitted" branch in the view had no dedicated test — different failure mode from "empty file content," worth adding.
 - Manually tested the upload via `curl` against the real HTTP path (not `Client().force_login()`) to close the gap `force_login()` leaves — it skips both the login flow and CSRF checking entirely, which is fine for testing view logic in isolation but means the full auth-cookie-CSRF round trip stays unverified by the automated suite alone.
+
+## Day 15 — PDF Extraction Service
+
+- Wrote `extract_pages(path)` — pure function, no Django imports, zero DB access. PyMuPDF opens the file, returns `[{page, text}]` for every non-blank page.
+- Custom exceptions: `ExtractionError` base, with `CorruptedPDFError`/`EncryptedPDFError`/`EmptyPDFError` subclasses.
+- First draft leaked a file handle on the encrypted-PDF path — `document.close()` was only called after success, never reached if `EncryptedPDFError` fired first. Fixed with `try/finally` so it always runs regardless of exit path.
+- Didn't assume PyMuPDF's exact behavior on encrypted files — generated a real encrypted PDF and ran it through the function by hand before writing the test, confirmed it raises `EncryptedPDFError` correctly rather than getting caught by the broad `except Exception` around `fitz.open()`.
+- Wrote 7 tests: valid multi-page PDF, blank pages skipped without erroring, all-blank raises `EmptyPDFError`, encrypted, corrupted, missing file, and — the one that actually matters — page numbers stay correct across a skipped blank page (page 3 stays page 3, doesn't get renumbered to page 2). This one directly protects the citation-accuracy metric later.
+- Real scare mid-session: thought a test file was written and confirmed via `cat`, but the "confirmation" was actually this chat's own scrollback repeating earlier content, not a real terminal read. The file was genuinely empty on disk (`wc -l` = 0) despite looking fine in the pasted output. Caught it before running anything destructive, but it's a real lesson: verify file state with `wc -l`/`cat` against the actual filesystem, don't trust a chat transcript as proof something landed on disk.
+- Consolidated `apps/documents/tests.py` into the `tests/` package alongside `test_extractor.py` — a flat single file doesn't scale once there's more than one or two test modules, and Day 16 adds `test_chunker.py` next.
+- Full suite: all passing after the move, no regressions.
