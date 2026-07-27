@@ -25,7 +25,7 @@ services:
     build: .
     container_name: lexvault_django
     restart: unless-stopped
-    command: uv run python manage.py runserver 0.0.0.0:8000
+    command: python manage.py runserver 0.0.0.0:8000
     env_file:
       - .env
     ports:
@@ -35,13 +35,13 @@ services:
       - redis
     volumes:
       - .:/app
-      - django_venv:/app/.venv
+      - uv_cache:/root/.cache/uv
 
   celery_worker:
     build: .
     container_name: lexvault_celery_worker
     restart: unless-stopped
-    command: uv run celery -A config worker --loglevel=info
+    command: celery -A config worker --loglevel=info
     env_file:
       - .env
     depends_on:
@@ -49,13 +49,13 @@ services:
       - redis
     volumes:
       - .:/app
-      - celery_venv:/app/.venv
+      - uv_cache:/root/.cache/uv
 
   flower:
     build: .
     container_name: lexvault_flower
     restart: unless-stopped
-    command: uv run celery -A config flower --port=5555
+    command: celery -A config flower --port=5555
     env_file:
       - .env
     ports:
@@ -63,8 +63,10 @@ services:
     depends_on:
       - redis
       - celery_worker
+    volumes:
+      - .:/app
+      - uv_cache:/root/.cache/uv
 
 volumes:
   postgres_data:
-  celery_venv:
-  django_venv:
+  uv_cache:
