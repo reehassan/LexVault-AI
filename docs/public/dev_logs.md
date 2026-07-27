@@ -135,3 +135,17 @@ Personal log of actual work completed on LexVault AI. Kept for future reference 
 - Real scare mid-session: thought a test file was written and confirmed via `cat`, but the "confirmation" was actually this chat's own scrollback repeating earlier content, not a real terminal read. The file was genuinely empty on disk (`wc -l` = 0) despite looking fine in the pasted output. Caught it before running anything destructive, but it's a real lesson: verify file state with `wc -l`/`cat` against the actual filesystem, don't trust a chat transcript as proof something landed on disk.
 - Consolidated `apps/documents/tests.py` into the `tests/` package alongside `test_extractor.py` — a flat single file doesn't scale once there's more than one or two test modules, and Day 16 adds `test_chunker.py` next.
 - Full suite: all passing after the move, no regressions.
+
+## Day 16 — Chunking Service
+
+- Wrote `chunk_pages(pages, chunk_size=350, overlap=50)` — same pure-function design as the extractor. Sliding token window per page, never spans page boundaries.
+- Real design decision, not in the roadmap by default: chunks never cross a page. The original chunking ADR allowed page-spanning chunks with "record the page where it starts" — changed this on purpose, since the citation metric needs an unambiguous page number per chunk, not a convention.
+- Guard added: raises `ValueError` if `overlap >= chunk_size`, since that combination would infinite-loop instead of crashing — a silent hang is worse than a loud failure.
+- Tokenizer is `tiktoken`'s `cl100k_base`, not the embedding model's own tokenizer as originally planned — decouples chunking from which embedding model eventually gets used, at the cost of `token_count` being an approximation rather than exact parity with bge-small's tokenizer.
+- 8 tests: empty input, single short page, large page splitting into multiple chunks, exact-boundary size, never-spans-pages, blank pages skipped, determinism (same input twice → identical output), and the overlap/chunk_size guard.
+- Spent most of tonight's real time on an unrelated blocker: `sentence-transformers` was still resolving full GPU torch (73 `nvidia-*` packages) despite multiple previous attempts to force CPU-only. Tried `torch-backend` config, `--preview`, and a direct wheel-URL pin — none of them actually took effect; verbose `uv lock -v` output showed it kept resolving a macOS ARM wheel regardless of the override. Gave up trying to fix the root cause tonight and instead added a `uv_cache` Docker volume so dependency downloads are cached across rebuilds — doesn't fix GPU torch being installed, but stops every unrelated dependency change from re-triggering a 15+ minute redownload. Real fix still open.
+- Replaced the old `chunking_strategy.md` and `error_classifications.md` ADRs with one combined ingestion-pipeline ADR reflecting what's actually built — the old docs had drifted (500 vs 350 token chunks, embedding-model tokenizer vs tiktoken, page-spanning vs never-spanning) since they were written before implementation started.
+
+## Open TODOs
+- [ ] CPU-only torch resolution still unsolved — deferred twice now. Needs a real fix before Day 19's embedding work, not another workaround.
+- [ ] `process_document` Celery task still Day 14 stub — Day 17 wires extraction + chunking into it for real.
