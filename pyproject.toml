@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
+
 dependencies = [
     "boto3>=1.43.42",
     "celery>=5.6.3",
@@ -17,7 +18,8 @@ dependencies = [
     "pymupdf>=1.28.0",
     "python-magic>=0.4.27",
     "redis>=8.0.1",
-    "sentence-transformers>=5.6.0", 
+    "sentence-transformers>=5.6.0",
+    "torch",
     "tiktoken>=0.13.0",
 ]
 
@@ -39,13 +41,17 @@ dev = [
     "ruff>=0.15.20",
 ]
 
-
 [tool.coverage.run]
 source = ["apps"]
 omit = ["*/migrations/*", "*/tests.py", "*/__init__.py"]
 
 [tool.coverage.report]
 show_missing = true
+
+[tool.uv]
+environments = [
+    "sys_platform == 'linux' and python_full_version >= '3.14'",
+]
 
 [tool.uv.sources]
 torch = { url = "https://download.pytorch.org/whl/cpu/torch-2.13.0%2Bcpu-cp314-cp314-manylinux_2_28_x86_64.whl" }
