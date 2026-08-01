@@ -36,6 +36,7 @@ services:
     volumes:
       - .:/app
       - uv_cache:/root/.cache/uv
+      - hf_cache:/root/.cache/huggingface
 
   celery_worker:
     build: .
@@ -50,6 +51,7 @@ services:
     volumes:
       - .:/app
       - uv_cache:/root/.cache/uv
+      - hf_cache:/root/.cache/huggingface
 
   flower:
     build: .
@@ -66,7 +68,9 @@ services:
     volumes:
       - .:/app
       - uv_cache:/root/.cache/uv
+      - hf_cache:/root/.cache/huggingface
 
 volumes:
   postgres_data:
   uv_cache:
+  hf_cache:
