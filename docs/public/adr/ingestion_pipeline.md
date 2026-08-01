@@ -3,8 +3,6 @@
 ## Status
 Accepted (upload, extraction, chunking — Days 14–16). Embedding/storage stage (Day 17+) is a stub, documented below as planned but not yet implemented.
 
-**Note:** This ADR supersedes `chunking_strategy.md` and `error_classifications.md`, which described an earlier planned design (500-token chunks, embedding-model-supplied tokenizer) that diverged from what was actually built. This document reflects the real, implemented pipeline as the single source of truth.
-
 ---
 
 ## Context
