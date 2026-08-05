@@ -234,3 +234,36 @@ Personal log of actual work completed on LexVault AI. Kept for future reference 
   - Real legal documents successfully process end-to-end.
   - Automated test suite remains green.
 - Next milestone: build the vector search layer — the system can now ingest legal knowledge; the next step is retrieving relevant chunks and generating grounded answers.
+
+## Day 21 — Vector Similarity Search with pgvector
+
+- Built the first retrieval layer of LexVault AI — the system can now search stored document chunks using vector similarity instead of keyword matching. This is the first step where the RAG pipeline moves from "knowledge ingestion" into "knowledge retrieval."
+
+- Created `apps/search/services/retriever.py` with `retrieve_chunks(query_embedding, firm_id, top_k)` as the main retrieval function.
+  - Input:
+    - Query embedding vector.
+    - Current firm's ID.
+    - Number of chunks to retrieve.
+  - Output:
+    - Top matching chunks.
+    - Similarity scores.
+    - Document metadata needed later for citations.
+
+- Learned the critical difference between cosine similarity and cosine distance:
+  - Humans think in similarity: higher = more similar.
+  - pgvector's `CosineDistance` returns distance: lower = more similar.
+  - Formula:
+    ```
+    cosine_distance = 1 - cosine_similarity
+    ```
+  - This means the correct ordering is:
+    ```
+    .order_by("distance")
+    ```
+    not:
+    ```
+    .order_by("-distance")
+    ```
+  - A reversed order would not crash anything — it would silently return the worst matching chunks first.
+
+- Implemented the retrieval query using Django ORM + pgvector:
