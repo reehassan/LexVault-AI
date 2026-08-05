@@ -198,6 +198,39 @@ Personal log of actual work completed on LexVault AI. Kept for future reference 
 - Side effect: `tasks.py`'s previously-untested generic `except Exception` fallback branch (open since Day 17, 87% coverage) is now at 100% — the rollback test's forced failure is exactly the kind of unclassified exception that branch exists to catch.
 - Full suite: 65 tests passing, 99% coverage.
 
-## Where things stand
+## Day Extra (Debugging and tests) — Pipeline Validation & Production-Like Document Testing
 
-7 of 15 MVP stories done as of Day 19; embedding (5) and vector storage (6) both now genuinely complete as of today — chunks are real rows in Postgres with real 384-dim vectors attached, not just theoretically-buildable services. Day 21 (vector search service) is the next real milestone: everything up through today has been about getting data *in*; Day 21 is the first step toward getting an answer *out*.
+- Tested the complete ingestion pipeline with real legal documents instead of only synthetic test PDFs. Added multiple USA government legal documents including Federal Rules of Civil Procedure, Federal Rules of Evidence, and Supreme Court opinions to `test_documents/` for realistic workload testing.
+- Built the manual upload workflow through Django shell first to verify the complete path: `Document creation → file storage → Celery task → extraction → chunking → embedding → Chunk persistence`.
+- Found and fixed a small shell testing issue: forgot to import `default_storage` while manually creating documents. Confirmed the correct imports and storage flow before continuing.
+- Verified the pipeline successfully processed a real Federal Rules of Civil Procedure PDF:
+  - Document created successfully.
+  - Celery task completed.
+  - 391 chunks generated.
+  - Embeddings stored correctly.
+  - Document status reached `ready`.
+- Added more confidence by checking tenant ownership after processing:
+  - `document.firm_id` matched `uploaded_by.firm_id`.
+  - Confirmed chunks remained attached to the correct document and firm.
+- Improved the testing workflow by creating a plan to move away from manual shell uploads. Instead of repeatedly creating documents through Django shell, the next improvement is a reusable document uploader script that uses the real upload path and can batch upload legal PDFs automatically.
+- Reviewed the existing upload architecture:
+  - `upload_document` view already handles authentication, validation, storage, document creation, and Celery dispatch.
+  - Confirmed the correct place for automation is a separate uploader utility, not inside the Django view.
+  - The uploader will act like a client sending files to the API, keeping production behavior identical to real users uploading documents.
+- Ran the document test suite:
+  - `docker compose exec django pytest apps/documents/tests -v`
+  - Result: **34 tests passed**
+- Verified Django project health:
+  - `python manage.py check` → no issues.
+  - `makemigrations --check` → no pending migrations.
+- Attempted to run coverage reporting using `pytest --cov`, discovered `pytest-cov` is not installed in the environment. Existing coverage setup from previous days uses the `coverage` package directly, so pytest coverage flags are currently unavailable until the plugin is added.
+- Current state:
+  - Upload endpoint works.
+  - Storage layer works.
+  - Celery pipeline works.
+  - Extraction works.
+  - Chunking works.
+  - Local embeddings work.
+  - Real legal documents successfully process end-to-end.
+  - Automated test suite remains green.
+- Next milestone: build the vector search layer — the system can now ingest legal knowledge; the next step is retrieving relevant chunks and generating grounded answers.
