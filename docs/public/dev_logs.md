@@ -267,3 +267,36 @@ Personal log of actual work completed on LexVault AI. Kept for future reference 
   - A reversed order would not crash anything — it would silently return the worst matching chunks first.
 
 - Implemented the retrieval query using Django ORM + pgvector:
+
+
+## Day 22 — HNSW Performance Validation
+
+* Verified LexVault's HNSW vector index using `EXPLAIN ANALYZE` instead of assuming it was being used. The goal was to confirm PostgreSQL's query planner behavior and measure vector search performance at different dataset sizes.
+
+* Confirmed the HNSW index existed correctly:
+
+  ```
+  idx_chunk_embedding hnsw (embedding vector_cosine_ops)
+  ```
+
+  Then tested the vector search query with the original dataset (~391 chunks). PostgreSQL chose `Seq Scan` with ~15ms execution time, which was expected because small datasets are often cheaper to scan directly than traverse through an HNSW graph.
+
+* Tested the real LexVault tenant-scoped retrieval query with `firm_id` filtering and confirmed the same behavior. The query was correct from a multi-tenant isolation perspective, but the dataset was too small for PostgreSQL to benefit from HNSW.
+
+* Created a benchmark management command `generate_test_chunks` and generated 100,000 additional chunks with 384-dimensional embeddings to simulate a realistic vector search workload.
+
+* Re-ran `EXPLAIN ANALYZE` after increasing the dataset size to ~100k chunks. PostgreSQL switched from `Seq Scan` to `Index Scan using idx_chunk_embedding`, proving that the HNSW index was correctly configured and being used when the dataset size justified it.
+
+* Verified the production-style query:
+
+  ```
+  WHERE firm_id = tenant_id
+  ORDER BY embedding <=> query_vector
+  LIMIT 5
+  ```
+
+  also used the HNSW index with ~3.4ms execution time.
+
+* Documented the benchmark results in `docs/performance/vector_search.md`, including query plans, execution times, and the lesson that PostgreSQL chooses indexes based on cost rather than simply because they exist.
+
+* Main takeaway: vector search optimization is not just about creating an index. You need to verify execution plans, understand database planner decisions, and test with realistic data sizes before making performance assumptions.
