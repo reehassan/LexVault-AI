@@ -116,3 +116,17 @@ AUTHENTICATION_BACKENDS = [
     "django.contrib.auth.backends.ModelBackend",  # fallback, e.g. for Django admin login by superuser
 ]
 MAX_DOCUMENT_UPLOAD_SIZE = 20 * 1024 * 1024  # 20 MB
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+        },
+    },
+    "root": {
+        "handlers": ["console"],
+        "level": "INFO",
+    },
+}
