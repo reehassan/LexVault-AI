@@ -34,16 +34,6 @@ def process_document(document_id):
     try:
         path = default_storage.path(document.storage_path)
 
-        logger.info("CELERY PATH: %s", path)
-        logger.info(
-            "CELERY FILE EXISTS: %s",
-            os.path.exists(path)
-        )
-        logger.info(
-            "CELERY STORAGE PATH: %s",
-            document.storage_path
-        )
-
         if not os.path.exists(path):
             raise CorruptedPDFError(
                 f"File missing inside worker container: {path}"
@@ -58,34 +48,33 @@ def process_document(document_id):
                 f"Unable to open PDF: {path} | {exc}"
             ) from exc
 
-
         pages = extract_pages(path)
+        logger.info(
+            "Extraction complete for %s: pages=%s",
+            document_id, len(pages),
+        )
 
         chunks = chunk_pages(pages)
+        logger.info(
+            "Chunking complete for %s: chunks=%s",
+            document_id, len(chunks),
+        )
 
         if not chunks:
             raise EmptyDocumentError(
                 "No chunks were produced from this document."
             )
 
-
         embeddings = embed_chunks(chunks)
-
+        logger.info(
+            "Embedding complete for %s: embeddings=%s",
+            document_id, len(embeddings),
+        )
 
         assert len(chunks) == len(embeddings), (
             f"chunk/embedding count mismatch: "
             f"{len(chunks)} vs {len(embeddings)}"
         )
-
-
-        logger.info(
-            "Document %s: pages=%s chunks=%s embeddings=%s",
-            document_id,
-            len(pages),
-            len(chunks),
-            len(embeddings),
-        )
-
 
         chunk_objects = [
             Chunk(
@@ -100,10 +89,13 @@ def process_document(document_id):
             for item, embedding in zip(chunks, embeddings)
         ]
 
-
         with transaction.atomic():
 
             Chunk.objects.bulk_create(chunk_objects)
+            logger.info(
+                "Database write complete for %s: chunks_written=%s",
+                document_id, len(chunk_objects),
+            )
 
             document.page_count = total_pages
             document.status = Document.ProcessingStatus.READY
@@ -118,6 +110,9 @@ def process_document(document_id):
                 ]
             )
 
+            logger.info(
+                "Processing finished for %s: status=ready", document_id
+            )
 
     except ExtractionError as exc:
 
@@ -138,7 +133,6 @@ def process_document(document_id):
             ]
         )
 
-
     except EmptyDocumentError as exc:
 
         logger.warning(
@@ -157,7 +151,6 @@ def process_document(document_id):
                 "updated_at",
             ]
         )
-
 
     except Exception as exc:
 
