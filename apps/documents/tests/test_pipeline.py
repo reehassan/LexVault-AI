@@ -26,6 +26,9 @@ from apps.documents.tasks import process_document
 from apps.documents.services.storage import save_document_file
 from apps.firms.models import Firm
 
+from apps.search.services.retriever import retrieve_chunks
+from apps.documents.services.embedder import embed_chunks
+
 User = get_user_model()
 
 
@@ -284,3 +287,33 @@ def test_process_document_stays_scoped_to_its_own_firm(firm, user, settings, tmp
     assert chunks_b.count() > 0
     assert all(c.firm_id == firm.id for c in chunks_a)
     assert all(c.firm_id == firm_b.id for c in chunks_b)
+
+@pytest.mark.django_db
+def test_process_document_marks_failed_when_file_missing_from_disk(uploaded_document):
+    import os
+    from django.core.files.storage import default_storage
+
+    real_path = default_storage.path(uploaded_document.storage_path)
+    os.remove(real_path)
+
+    process_document(str(uploaded_document.id))
+
+    uploaded_document.refresh_from_db()
+    assert uploaded_document.status == Document.ProcessingStatus.FAILED
+    assert "missing" in uploaded_document.error_message.lower()
+
+@pytest.mark.django_db
+def test_end_to_end_retrieval_finds_relevant_chunk(uploaded_document):
+    process_document(str(uploaded_document.id))
+    uploaded_document.refresh_from_db()
+    assert uploaded_document.status == Document.ProcessingStatus.READY
+
+    query_embedding = embed_chunks(
+        [{"chunk_text": "Real content on page 1"}]
+    )[0]
+    results = retrieve_chunks(
+        query_embedding, uploaded_document.firm_id, top_k=1
+    )
+
+    assert len(results) == 1
+    assert results[0]["page_number"] == 1
