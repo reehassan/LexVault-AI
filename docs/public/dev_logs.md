@@ -300,3 +300,41 @@ Personal log of actual work completed on LexVault AI. Kept for future reference 
 * Documented the benchmark results in `docs/performance/vector_search.md`, including query plans, execution times, and the lesson that PostgreSQL chooses indexes based on cost rather than simply because they exist.
 
 * Main takeaway: vector search optimization is not just about creating an index. You need to verify execution plans, understand database planner decisions, and test with realistic data sizes before making performance assumptions.
+
+## Day 23 — Pipeline Integration Testing
+
+- Wrote the complete pipeline integration tests the roadmap asked for: `Upload PDF → Extract → Chunk → Embed → Store → Retrieve`, exercised through the real `process_document` task rather than testing each service in isolation. `test_process_document_marks_ready_on_success` confirms status reaches `ready`, chunk count is correct, every chunk has a 384-dim embedding, and content is non-empty — the full checklist in one test against real Celery execution.
+
+- Added the tenant-isolation test the roadmap specifically called for: Firm A and Firm B, different PDFs, both processed through the real task. Confirmed `storage_path` never crosses firms and every resulting `Chunk` row's `firm_id` matches its owning firm — not just at write time, checked again after processing completes.
+
+- Reorganized `test_pipeline.py` by concern along the way — fixtures grouped, success path grouped, failure paths grouped, transactional-integrity tests grouped — and added the encrypted/empty/isolation coverage that had been thin.
+
+- What I didn't catch until Day 24: this suite proves ingestion produces well-formed embeddings, but never actually proves those embeddings are *findable*. "Retrieval returns relevant chunks" was on this day's checklist and I marked it done because chunks existed with correct dimensions — that's not the same claim. A broken pooling strategy or a mis-normalized embedding could pass every test here and still return garbage for a real query. Caught this gap during Day 24's review, not today — recorded here since the gap originated in this day's scope, not tomorrow's.
+
+- Real commit dates for this work, checked via git log rather than trusted from memory, since I'd lost track of exactly which day this landed:
+
+This entry is going in four days late. Lesson: write the devlog the same day the work lands, not whenever I happen to circle back — I nearly lost the actual date this work was done and only recovered it by checking git history line by line.
+
+---
+
+## Day 24 — Pipeline Validation & Developer Documentation
+
+- Started by closing the gap Day 23 actually left open: no test proved retrieval works against *real* embedded content, only against hand-built vectors in `test_search.py` (deliberately, per that file's own docstring — testing ordering logic shouldn't depend on model behavior, which is a legitimate reason for that test to exist as-is). Added `test_end_to_end_retrieval_finds_relevant_chunk`: runs a real PDF through `process_document()`, embeds a real query phrase with the actual embedder, and asserts `retrieve_chunks()` returns the correct page. This is the first test in the whole suite that proves the embedding model itself produces vectors where semantically similar text ends up close together, not just that the pipeline plumbing is wired correctly.
+
+- Reviewed logs stage by stage, per the roadmap's checklist, and found the pipeline's observability was much thinner than it looked. `tasks.py` had exactly one real per-stage log ("Upload received," in `uploader.py`) plus three lines that were clearly leftover debug prints (`CELERY PATH`, `CELERY FILE EXISTS`, `CELERY STORAGE PATH`) firing unconditionally on every run, and one combined summary log that fired only after extraction, chunking, *and* embedding had all already finished — meaning a task stuck partway through gave zero signal about which stage it was actually in.
+
+- Deleted the three debug-print lines and replaced the single combined summary with five real stage-boundary logs: extraction complete, chunking complete, embedding complete, database write complete, processing finished. Verified these live, not just by reading the code — triggered two real uploads through the actual Celery worker and grepped `docker compose logs celery_worker`, watching all five appear in order with correct counts (391 chunks, matching the known-good baseline).
+
+- The upload-side log was the harder problem, and the more interesting one. `logger.info("Upload received...")` in `uploader.py` had existed since Day 14 and ran without error every time — but never produced output anywhere. Root cause: `base.py` has no `LOGGING` config at all, so the app logger fell back to Python's root logger with no handler attached. The call wasn't failing, it was just going nowhere — a genuinely worse failure mode than a missing log line, because nothing about it looks broken.
+
+- Added a minimal root `LOGGING` config (one console handler, INFO level) to fix it. Kept it deliberately small — this isn't the day to build out per-module formatters or file handlers, just to make the existing calls actually land somewhere reviewable.
+
+- Verifying the fix took three wrong attempts before I understood why. `python manage.py shell -c "..."` runs as its own one-off process with its own stdout — it never routes through the same log stream `docker compose logs django` captures, no matter what the `LOGGING` config says, because that stream belongs to the long-running `runserver` process specifically. Confirmed this properly two ways: first by live-tailing `docker compose logs -f django` in parallel while running the shell command and watching the line simply never appear there despite printing to my own terminal; then by forcing a real HTTP request through curl (manually building a session and a CSRF token, since `force_login()`-style shortcuts don't exist outside test code) and watching "Upload received" finally show up with the `lexvault_django |` prefix, twice, across two separate real requests. Real lesson: a passing log call and a log call that's actually observable in production-style output are two different claims, and only a request through the real server process can prove the second one.
+
+- Reviewed the architecture doc for drift, as required, and left two known mismatches in place rather than silently fixing them mid-review:
+  - `02_arcitechture.md` still documents Redis-backed sessions; actual settings use Django's default DB-backed sessions. Never reconciled since it was first noted.
+  - The same doc describes SSE pushing stage-transition status as part of the ingestion pipeline today — SSE doesn't exist yet, that's Day 29's work. This one's expected drift (the doc describes target state, not current state) but still worth writing down rather than assuming it's obviously fine.
+
+- Full suite: 71 passing, 96% overall coverage. `tasks.py` and `uploader.py` both at 100%.
+
+- Bigger-picture takeaway for the day: "add logging" and "prove logging works" turned out to be almost entirely different amounts of effort. The code changes took minutes; confirming they actually produced durable, reviewable output — and understanding *why* my first three verification attempts kept failing silently — took most of the session. Worth remembering next time observability work feels done after the code compiles and the tests pass: that's necessary, not sufficient.
