@@ -1,9 +1,12 @@
+import logging
+
 from django.db import transaction
 from django.core.files.storage import default_storage
-
 from apps.documents.models import Document
 from apps.documents.services.storage import save_document_file
 from apps.documents.tasks import process_document
+
+logger = logging.getLogger(__name__)
 
 
 def upload_document_file(
@@ -13,7 +16,6 @@ def upload_document_file(
 ):
     """
     Complete document upload workflow:
-
     1. Save file to storage
     2. Create Document record
     3. Queue Celery processing
@@ -21,14 +23,11 @@ def upload_document_file(
     Returns:
         Document instance
     """
-
     with transaction.atomic():
-
         storage_path = save_document_file(
             file_obj=file_obj,
             firm_id=user.firm_id,
         )
-
         document = Document.objects.create(
             firm=user.firm,
             uploaded_by=user,
@@ -38,10 +37,14 @@ def upload_document_file(
             status=Document.ProcessingStatus.UPLOADED,
         )
 
+        logger.info(
+            "Upload received: document_id=%s filename=%s firm_id=%s size_bytes=%s",
+            document.id, document.filename, document.firm_id, document.file_size_bytes,
+        )
+
         transaction.on_commit(
             lambda: process_document.delay(
                 str(document.id)
             )
         )
-
     return document
