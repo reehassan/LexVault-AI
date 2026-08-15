@@ -1,5 +1,7 @@
 # apps/search/views.py
 
+import json
+
 from django.http import JsonResponse
 from django.views.decorators.http import require_POST
 
@@ -18,14 +20,15 @@ def search_documents_view(request):
 
     Expected JSON:
         {
-            "question": "What are the termination clauses?"
+            "query": "What are the termination clauses?"
         }
     """
 
     if not request.user.is_authenticated:
         return JsonResponse(
             {
-                "detail": "Authentication required."
+                "error": "authentication_required",
+                "detail": "Authentication required.",
             },
             status=401,
         )
@@ -33,29 +36,29 @@ def search_documents_view(request):
     if request.user.firm_id is None:
         return JsonResponse(
             {
-                "detail": "User is not associated with a firm."
+                "error": "forbidden_no_firm",
+                "detail": "User is not associated with a firm.",
             },
             status=403,
         )
 
     try:
-        import json
-
         body = json.loads(request.body)
 
     except (json.JSONDecodeError, UnicodeDecodeError):
         return JsonResponse(
             {
-                "detail": "Request body must contain valid JSON."
+                "error": "invalid_json",
+                "detail": "Request body must contain valid JSON.",
             },
             status=400,
         )
 
-    question = body.get("question")
+    query = body.get("query")
 
     try:
         results = search_documents(
-            question=question,
+            query=query,
             firm_id=request.user.firm_id,
             top_k=5,
         )
@@ -63,7 +66,8 @@ def search_documents_view(request):
     except InvalidSearchQueryError as exc:
         return JsonResponse(
             {
-                "detail": str(exc)
+                "error": "validation_error",
+                "detail": str(exc),
             },
             status=400,
         )
