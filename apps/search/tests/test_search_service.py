@@ -57,7 +57,7 @@ def test_search_documents_returns_results(
 
     monkeypatch.setattr(
         "apps.search.services.search.embed_query",
-        lambda question: query_embedding,
+        lambda query: query_embedding,
     )
 
     Chunk.objects.create(
@@ -71,7 +71,7 @@ def test_search_documents_returns_results(
     )
 
     results = search_documents(
-        question="What are the termination clauses?",
+        query="What are the termination clauses?",
         firm_id=firm.id,
     )
 
@@ -89,11 +89,11 @@ def test_search_documents_empty_vault_returns_empty(
 ):
     monkeypatch.setattr(
         "apps.search.services.search.embed_query",
-        lambda question: make_vector(1, 0),
+        lambda query: make_vector(1, 0),
     )
 
     results = search_documents(
-        question="What are the payment terms?",
+        query="What are the payment terms?",
         firm_id=firm.id,
     )
 
@@ -151,11 +151,11 @@ def test_search_documents_never_crosses_firms(
 
     monkeypatch.setattr(
         "apps.search.services.search.embed_query",
-        lambda question: make_vector(1, 0),
+        lambda query: make_vector(1, 0),
     )
 
     results = search_documents(
-        question="Find relevant content.",
+        query="Find relevant content.",
         firm_id=firm.id,
     )
 
@@ -164,25 +164,25 @@ def test_search_documents_never_crosses_firms(
     assert results[0]["content"] == "Firm A content."
 
 
-def test_search_documents_rejects_empty_question():
+def test_search_documents_rejects_empty_query():
     with pytest.raises(InvalidSearchQueryError):
         search_documents(
-            question="",
+            query="",
             firm_id="firm-id",
         )
 
 
-def test_search_documents_rejects_whitespace_question():
+def test_search_documents_rejects_whitespace_query():
     with pytest.raises(InvalidSearchQueryError):
         search_documents(
-            question="   ",
+            query="   ",
             firm_id="firm-id",
         )
 
 
-def test_search_documents_rejects_non_string_question():
+def test_search_documents_rejects_non_string_query():
     with pytest.raises(InvalidSearchQueryError):
         search_documents(
-            question=None,
+            query=None,
             firm_id="firm-id",
         )

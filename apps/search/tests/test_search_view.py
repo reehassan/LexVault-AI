@@ -36,7 +36,7 @@ def test_search_requires_authentication(client):
     response = client.post(
         "/search/",
         data=json.dumps(
-            {"question": "What are the payment terms?"}
+            {"query": "What are the payment terms?"}
         ),
         content_type="application/json",
     )
@@ -44,7 +44,8 @@ def test_search_requires_authentication(client):
     assert response.status_code == 401
 
     assert response.json() == {
-        "detail": "Authentication required."
+        "error": "authentication_required",
+        "detail": "Authentication required.",
     }
 
 
@@ -59,12 +60,13 @@ def test_search_rejects_invalid_json(client_logged_in):
     assert response.status_code == 400
 
     assert response.json() == {
-        "detail": "Request body must contain valid JSON."
+        "error": "invalid_json",
+        "detail": "Request body must contain valid JSON.",
     }
 
 
 @pytest.mark.django_db
-def test_search_rejects_empty_question(
+def test_search_rejects_empty_query(
     client_logged_in,
     monkeypatch,
 ):
@@ -72,7 +74,7 @@ def test_search_rejects_empty_question(
 
     def fake_search_documents(*args, **kwargs):
         raise views.InvalidSearchQueryError(
-            "question must be a non-empty string"
+            "query must be a non-empty string"
         )
 
     monkeypatch.setattr(
@@ -83,14 +85,15 @@ def test_search_rejects_empty_question(
 
     response = client_logged_in.post(
         "/search/",
-        data=json.dumps({"question": ""}),
+        data=json.dumps({"query": ""}),
         content_type="application/json",
     )
 
     assert response.status_code == 400
 
     assert response.json() == {
-        "detail": "question must be a non-empty string"
+        "error": "validation_error",
+        "detail": "query must be a non-empty string",
     }
 
 
@@ -123,11 +126,11 @@ def test_search_succeeds(
     captured = {}
 
     def fake_search_documents(
-        question,
+        query,
         firm_id,
         top_k,
     ):
-        captured["question"] = question
+        captured["query"] = query
         captured["firm_id"] = firm_id
         captured["top_k"] = top_k
 
@@ -143,7 +146,7 @@ def test_search_succeeds(
         "/search/",
         data=json.dumps(
             {
-                "question": "What are the payment terms?"
+                "query": "What are the payment terms?"
             }
         ),
         content_type="application/json",
@@ -156,7 +159,7 @@ def test_search_succeeds(
     assert data["count"] == 2
     assert data["results"] == fake_results
 
-    assert captured["question"] == (
+    assert captured["query"] == (
         "What are the payment terms?"
     )
 
@@ -183,7 +186,7 @@ def test_search_returns_empty_results_for_empty_vault(
     response = client_logged_in.post(
         "/search/",
         data=json.dumps(
-            {"question": "What are the termination clauses?"}
+            {"query": "What are the termination clauses?"}
         ),
         content_type="application/json",
     )
@@ -209,7 +212,7 @@ def test_search_rejects_user_without_firm(client, db):
     response = client.post(
         "/search/",
         data=json.dumps(
-            {"question": "What are the payment terms?"}
+            {"query": "What are the payment terms?"}
         ),
         content_type="application/json",
     )
@@ -217,5 +220,6 @@ def test_search_rejects_user_without_firm(client, db):
     assert response.status_code == 403
 
     assert response.json() == {
-        "detail": "User is not associated with a firm."
+        "error": "forbidden_no_firm",
+        "detail": "User is not associated with a firm.",
     }

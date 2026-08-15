@@ -5,7 +5,7 @@ Application-level semantic search service.
 
 Pipeline:
 
-    User question
+    User query
         ↓
     Query embedding
         ↓
@@ -22,17 +22,17 @@ from apps.search.services.retriever import retrieve_chunks
 
 
 class InvalidSearchQueryError(ValueError):
-    """Raised when a search question is invalid."""
+    """Raised when a search query is invalid."""
 
     pass
 
 
-def search_documents(question, firm_id, top_k=5):
+def search_documents(query, firm_id, top_k=5):
     """
     Search documents belonging to one firm.
 
     Args:
-        question (str): user's natural-language search question.
+        query (str): user's natural-language search query.
         firm_id: authenticated user's firm ID.
         top_k (int): maximum number of chunks to return.
 
@@ -46,19 +46,19 @@ def search_documents(question, firm_id, top_k=5):
             - similarity
 
     Raises:
-        InvalidSearchQueryError: if question is empty or invalid.
+        InvalidSearchQueryError: if query is empty or invalid.
     """
-    if not isinstance(question, str):
+    if not isinstance(query, str):
         raise InvalidSearchQueryError(
-            "question must be a string"
+            "query must be a string"
         )
 
-    if not question.strip():
+    if not query.strip():
         raise InvalidSearchQueryError(
-            "question must be a non-empty string"
+            "query must be a non-empty string"
         )
 
-    query_embedding = embed_query(question)
+    query_embedding = embed_query(query)
 
     return retrieve_chunks(
         query_embedding=query_embedding,
