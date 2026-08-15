@@ -342,3 +342,45 @@ This entry is going in four days late. Lesson: write the devlog the same day the
 ### Day 25 — Search Endpoint & Vector Retrieval
 
 On Day 25, LexVault AI’s semantic search layer was completed. Implemented `search_documents(question, firm_id, top_k=5)` to generate query embeddings using the local **bge-small-en-v1.5** model, filter chunks by `firm_id` for strict tenant isolation, perform cosine-similarity vector search through pgvector, and return the top matching chunks with similarity scores, document filename, page number, and content. A `POST /search/` Django endpoint was added with authentication, firm-association, JSON validation, empty-query handling, and appropriate HTTP error responses. Comprehensive tests were added for the search service and endpoint, covering query validation, successful searches, empty vaults, top-k limits, similarity ordering, and cross-firm isolation. Final verification passed **16 search tests**, confirming that the complete semantic-search and tenant-isolated retrieval flow is working correctly.
+
+## Contract & Endpoint Debt Cleanup (pre-Day 26)
+
+- Caught a real drift between `04_api_contract.md` and the actual Day 25
+  code: the contract specified `{"query": ...}` as the search request
+  field; the shipped endpoint expected `"question"`. Renamed the field
+  through the service, the view, and every test.
+
+- Same review surfaced that every error response in `apps/search/views.py`
+  was a bare `{"detail": "..."}` — the contract's §2 requires an
+  `error` machine-readable code on every error, no exceptions. Fixed,
+  and while auditing for the same pattern found `apps/documents/views.py`
+  had the identical gap. Fixed both rather than leaving one app
+  consistent and the other not.
+
+- Real miss during this pass: fixed `test_search_view.py` and
+  `search.py`, ran that one test file, saw 6/6 pass, assumed done.
+  Running the *full* suite instead of the one file caught 6 failures
+  in `test_search_service.py` — a file I hadn't touched and hadn't
+  even looked at, because it wasn't in the set of files I originally
+  pulled up to review. Lesson: a green single-file test run proves
+  the file I edited is internally consistent, not that nothing else
+  in the codebase still calls the old signature. `grep -rn "question"`
+  across `apps/` would have caught this before running anything —
+  used it after the fact to confirm nothing else was missed, should
+  have used it first.
+
+- Full suite: 90 passed, 0 failed after both fixes landed.
+
+- Known gap, not closed today: no real end-to-end HTTP test of the
+  new field name through actual login → CSRF → POST /search/, because
+  there's no login view yet — `apps/accounts/views.py` is still a
+  stub. `force_login()`-based tests don't exercise CSRF, same caveat
+  as Day 14's upload endpoint. This stays open until a real login view
+  exists.
+
+- Also open: `docs/private/roadmap.md` and the Day 25 dev log entry
+  above still reference the old `question` signature. Not editing
+  history in the log entry itself — leaving it as a record of what
+  was actually built that day — but the roadmap doc should either be
+  corrected or clearly marked superseded so it stops being a second
+  source of truth that disagrees with the code.
